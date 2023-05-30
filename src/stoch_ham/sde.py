@@ -31,7 +31,7 @@ def euler_maruyama(key, f, L, params, x0, t_span, dt):
     :return: Array(time_steps, state_dim).
     """
     time_steps = int((t_span[1] - t_span[0]) / dt)
-    q = params[-1]
+    q = params['q']
     dbeta = jnp.sqrt(q * dt) * jax.random.normal(key, shape=(time_steps,))
     soln = [x0]
     x = x0
