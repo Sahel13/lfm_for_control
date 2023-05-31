@@ -1,16 +1,21 @@
+from typing import Callable
+
 import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import cho_solve
+from jax.typing import ArrayLike
 
 from stoch_ham.base import MVNStandard
 from stoch_ham.utils import mvn_loglikelihood, none_or_concat
 
 
-def filtering(observations: jnp.ndarray,
+def filtering(observations: ArrayLike,
               x0: MVNStandard,
-              transition_model,
-              observation_model,
-              linearization_method):
+              transition_model: Callable,
+              H: ArrayLike,
+              R: ArrayLike,
+              linearization_method: Callable
+              ):
     def body(carry, y):
         x, ell = carry
 
@@ -18,9 +23,8 @@ def filtering(observations: jnp.ndarray,
         F_x, cov_Q, b = linearization_method(transition_model, x)
         x = predict(F_x, cov_Q, b, x)
 
-        # Update
-        H_x, cov_R, c = linearization_method(observation_model, x)
-        x, ell_inc = update(H_x, cov_R, c, x, y)
+        # Update (Linear observation model assumed)
+        x, ell_inc = update(H, R, x, y)
         return (x, ell + ell_inc), x
 
     (_, ell), xs = jax.lax.scan(body, (x0, 0.), observations)
@@ -29,7 +33,7 @@ def filtering(observations: jnp.ndarray,
     return xs, ell
 
 
-def predict(F, Q, b, x):
+def predict(F, Q, b, x: MVNStandard):
     m, P = x
 
     m = F @ m + b
@@ -38,10 +42,10 @@ def predict(F, Q, b, x):
     return MVNStandard(m, P)
 
 
-def update(H, R, c, x, y):
+def update(H, R, x: MVNStandard, y: ArrayLike):
     m, P = x
 
-    y_hat = H @ m + c
+    y_hat = H @ m
     y_diff = y - y_hat
     S = R + H @ P @ H.T
     chol_S = jnp.linalg.cholesky(S)

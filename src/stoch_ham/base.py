@@ -1,9 +1,13 @@
-from typing import NamedTuple, Any
+from jax.typing import ArrayLike
+from typing import NamedTuple, Callable
 
 
 class MVNStandard(NamedTuple):
-    """
-    https://github.com/EEA-sensors/sqrt-parallel-smoothers
-    """
-    mean: Any
-    cov: Any
+    """Multivariate Normal Distribution with mean and covariance."""
+    mean: ArrayLike
+    cov: ArrayLike
+
+
+class FunctionalModel(NamedTuple):
+    function: Callable
+    mvn: MVNStandard
