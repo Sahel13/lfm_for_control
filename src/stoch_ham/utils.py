@@ -25,9 +25,9 @@ def none_or_concat(x, y, position=1):
     if x is None or y is None:
         return None
     if position == 1:
-        return jnp.concatenate([y[None, ...], x])
+        return jax.tree_map(lambda a, b: jnp.concatenate([a[None, ...], b]), y, x)
     else:
-        return jnp.concatenate([x, y[None, ...]])
+        return jax.tree_map(lambda a, b: jnp.concatenate([b, a[None, ...]]), y, x)
 
 
 def l2_loss_single(prediction, target):

@@ -37,7 +37,7 @@ def diffusion_fn(x, params):
     :param params: The parameters of the system.
     :return: The diffusion vector field.
     """
-    return jnp.array([0., -x[1]])
+    return jnp.array([0., 1.])
 
 
 def generate_measurements(key, true_traj, meas_error, sampling_rate, dt):
@@ -56,8 +56,8 @@ def generate_measurements(key, true_traj, meas_error, sampling_rate, dt):
     sub_traj = true_traj[::step]
     # Add noise
     meas_noise = random.normal(key, shape=sub_traj.shape) * meas_error
-    sub_traj += meas_noise
-    return sub_traj
+    meas_sub_traj = sub_traj + meas_noise
+    return sub_traj, meas_sub_traj
 
 
 def get_dataset(
@@ -67,7 +67,7 @@ def get_dataset(
         x0,
         t_span,
         dt: float = 0.001,
-        meas_error=jnp.array([0.05, .2]),
+        meas_error=jnp.array([0.1, .5]),
         sampling_rate: int = 10):
     """
     Function to generate a dataset of trajectories of the simple pendulum.
@@ -79,9 +79,9 @@ def get_dataset(
         soln = euler_maruyama(subkey, drift_fn, diffusion_fn, params, x0, t_span, dt)
 
         key, subkey = random.split(key)
-        measurements = generate_measurements(subkey, soln, meas_error, sampling_rate, dt)
+        true, meas = generate_measurements(subkey, soln, meas_error, sampling_rate, dt)
 
-        dataset.append(measurements)
+        dataset.append((true, meas))
     return dataset
 
 
@@ -94,7 +94,7 @@ if __name__ == "__main__":
         'mass': 1.,
         'length': 2.,
         'lambda': 5.,
-        'q': 0.01
+        'q': 0.05
     }
 
     x0 = jnp.array([jnp.pi / 2, 0.])

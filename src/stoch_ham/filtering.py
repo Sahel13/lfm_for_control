@@ -5,15 +5,14 @@ import jax.numpy as jnp
 from jax.scipy.linalg import cho_solve
 from jax.typing import ArrayLike
 
-from stoch_ham.base import MVNStandard
+from stoch_ham.base import MVNStandard, FunctionalModel
 from stoch_ham.utils import mvn_loglikelihood, none_or_concat
 
 
 def filtering(observations: ArrayLike,
               x0: MVNStandard,
-              transition_model: Callable,
-              H: ArrayLike,
-              R: ArrayLike,
+              transition_model: FunctionalModel,
+              observation_model: FunctionalModel,
               linearization_method: Callable
               ):
     def body(carry, y):
@@ -24,7 +23,8 @@ def filtering(observations: ArrayLike,
         x = predict(F_x, cov_Q, b, x)
 
         # Update (Linear observation model assumed)
-        x, ell_inc = update(H, R, x, y)
+        H_x, cov_R, c = linearization_method(observation_model, x)
+        x, ell_inc = update(H_x, cov_R, c, x, y)
         return (x, ell + ell_inc), x
 
     (_, ell), xs = jax.lax.scan(body, (x0, 0.), observations)
@@ -42,10 +42,10 @@ def predict(F, Q, b, x: MVNStandard):
     return MVNStandard(m, P)
 
 
-def update(H, R, x: MVNStandard, y: ArrayLike):
+def update(H, R, c, x: MVNStandard, y: ArrayLike):
     m, P = x
 
-    y_hat = H @ m
+    y_hat = H @ m + c
     y_diff = y - y_hat
     S = R + H @ P @ H.T
     chol_S = jnp.linalg.cholesky(S)
