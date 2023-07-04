@@ -67,8 +67,7 @@ def get_dataset(
         x0,
         t_span,
         dt: float = 0.001,
-        meas_error=jnp.array([0.1, .5]),
-        sampling_rate: int = 10):
+        sampling_rate: int = 100):
     """
     Function to generate a dataset of trajectories of the simple pendulum.
     :return: A list of trajectories.
@@ -79,7 +78,7 @@ def get_dataset(
         soln = euler_maruyama(subkey, drift_fn, diffusion_fn, params, x0, t_span, dt)
 
         key, subkey = random.split(key)
-        true, meas = generate_measurements(subkey, soln, meas_error, sampling_rate, dt)
+        true, meas = generate_measurements(subkey, soln, params['meas_error'], sampling_rate, dt)
 
         dataset.append((true, meas))
     return dataset
@@ -94,7 +93,8 @@ if __name__ == "__main__":
         'mass': 1.,
         'length': 2.,
         'lambda': 5.,
-        'q': 0.05
+        'q': 0.05,
+        'meas_error': jnp.array([0.1, .5])
     }
 
     x0 = jnp.array([jnp.pi / 2, 0.])

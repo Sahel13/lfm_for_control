@@ -22,6 +22,7 @@ def mvn_loglikelihood(x, mean, chol_cov):
 
 
 def none_or_concat(x, y, position=1):
+    """Method to concatenate two pytrees."""
     if x is None or y is None:
         return None
     if position == 1:

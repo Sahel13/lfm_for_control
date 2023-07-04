@@ -1,8 +1,6 @@
-from typing import Callable
-
 import jax
 from jax.typing import ArrayLike
-
+from typing import Callable
 from stoch_ham.base import MVNStandard, FunctionalModel
 
 
