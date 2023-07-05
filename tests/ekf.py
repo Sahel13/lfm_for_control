@@ -59,6 +59,8 @@ transition_model = FunctionalModel(dyn_fun, MVNStandard(0, Q))
 observation_model = FunctionalModel(meas_fun, MVNStandard(0, R))
 filt_states, log_likelihood = filtering(meas, x_0, transition_model, observation_model, extended)
 
+print(log_likelihood)
+
 plt.figure()
 plt.plot(t_eval, true_traj[:, 0], label='True trajectory')
 plt.plot(t_eval[1:], meas[:, 0], '.', label='Measurements')

@@ -8,20 +8,23 @@ from stoch_ham.filtering import filtering
 from stoch_ham.linearization import extended
 from stoch_ham.simple_pendulum.data import get_dataset, hamiltonian
 
-import optax
+import scipy
+from scipy.optimize import minimize
 
 ####################
 # Get the data
 ####################
-seed = 1
+seed = 10
 key = random.PRNGKey(seed)
+
+meas_error = jnp.array([0.1, 0.5])
 
 true_params = {
     'mass': 1.,
     'length': 2.,
     'lambda': 5.,
     'q': 0.5,
-    'meas_error': jnp.array([.01, .05])
+    'meas_error': meas_error
 }
 
 sim_dt = 0.001
@@ -68,13 +71,8 @@ if plot_figures:
 ####################
 # Filtering
 ####################
-guess_params = {
-    'mass': 1.,
-    'length': 1.,
-    'lambda': 1.,
-    'q': 0.5,
-    'meas_error': jnp.array([0.1, 0.1])
-}
+# The parameters are mass, length, b, lambda, q1, q2.
+guess_params = jnp.array([1., 2., 0., 5., .5, .01])
 
 
 def drift_fun(x, params):
@@ -83,17 +81,18 @@ def drift_fun(x, params):
     """
     q, p, u = x
     g = 9.81
-    m, l, lamba = params['mass'], params['length'], params['lambda']
-    return jnp.array([p / (m * l ** 2), -m * g * l * jnp.sin(q) - u, -lamba * u])
+    m, l, b, lamba = params[:4]
+    return jnp.array([p / (m * l ** 2), -m * g * l * jnp.sin(q) - b * p + u, -lamba * u])
 
 
-def get_Q(params, dt):
+def get_transition_noise(params, dt):
     """
     Get the process noise covariance matrix `Q`
     by first defining the diffusion vector `L`.
     """
-    L = jnp.array([0., 0., 1.])[:, None]
-    return L @ L.T * params['q'] * dt
+    L = jnp.array([[0., 0.], [1., 0.], [0., 1.]])
+    diffusion_matrix = jnp.diag(params[4:])
+    return L @ diffusion_matrix @ L.T * dt
 
 
 def get_x0(params):
@@ -101,26 +100,26 @@ def get_x0(params):
     Define the distribution of the initial state.
     """
     x0mean = jnp.array([jnp.pi / 2, 0., 0.])
-    u0_cov = params['q'] / (2 * params['lambda'])
+    u0_cov = params[-1] / (2 * params[3])
     x0cov = jnp.diag(jnp.array([1., 1., u0_cov]))
     x0 = MVNStandard(x0mean, x0cov)
     return x0
 
 
-def get_ell_and_filter(params, dt):
+def get_ell_and_filter(params, dt, meas_error):
     """
     Wrapper function to get the marginal data log-likelihood
     and the filtered states.
     """
     # Define the transition model.
-    Q = get_Q(params, dt)
+    Q = get_transition_noise(params, dt)
     transition_model = FunctionalModel(
         lambda x: x + drift_fun(x, params) * dt,
         MVNStandard(jnp.zeros(3), Q)
     )
 
     # Define the observation model.
-    R = jnp.diag(params['meas_error'])
+    R = meas_error
     H = jnp.array([[1., 0., 0.], [0., 1., 0.]])
     observation_model = FunctionalModel(
         lambda x: H @ x,
@@ -133,19 +132,9 @@ def get_ell_and_filter(params, dt):
     return ell, filt_states
 
 
-ell, filt_states = get_ell_and_filter(guess_params, dt)
-
-plt.figure()
-plt.plot(ts, filt_states.mean[1:, 0], label=r"$q$ filtered")
-plt.plot(ts, filt_states.mean[1:, 1], label=r"$p$ filtered")
-plt.plot(ts, observations[:, 0], '.', label=r"$q$ (measured)")
-plt.plot(ts, observations[:, 1], '.', label=r"$p$ (measured)")
-plt.plot(ts, true_traj[:, 0], label=r"$q$")
-plt.plot(ts, true_traj[:, 1], label=r"$p$")
-plt.title("Trajectory")
-plt.xlabel("Time")
-plt.legend()
-plt.show()
+ell, filt_states = get_ell_and_filter(guess_params, dt, meas_error)
+print(ell)
+print(filt_states.mean.shape)
 
 ####################
 # Parameter estimation
@@ -153,37 +142,23 @@ plt.show()
 get_neg_log_lik = lambda params: -get_ell_and_filter(params, dt)[0]
 grad_log_lik = jax.value_and_grad(get_neg_log_lik)
 
-
-@jax.jit
-def train_step(params, optimizer_state):
-    log_lik, grads = grad_log_lik(params)
-    updates, opt_state = optimizer.update(grads, optimizer_state)
-    return optax.apply_updates(params, updates), opt_state, log_lik
-
-
-learning_rate = 0.1
-num_epochs = 20
-optimizer = optax.adam(learning_rate)
-opt_state = optimizer.init(guess_params)
-
-# Training loop
-for i in range(num_epochs):
-    guess_params, opt_state, log_lik = train_step(guess_params, opt_state)
-    print(f"Epoch {i:4d} | Negative log-likelihood: {log_lik:.4f}")
-
-print(f"Final value of parameters: {guess_params}")
-print(f"True value of parameters: {true_params}")
-
-ell, filt_states = get_ell_and_filter(guess_params, dt)
-
 plt.figure()
 plt.plot(ts, filt_states.mean[1:, 0], label=r"$q$ filtered")
 plt.plot(ts, filt_states.mean[1:, 1], label=r"$p$ filtered")
-plt.plot(ts, observations[:, 0], '.', label=r"$q$ (measured)")
-plt.plot(ts, observations[:, 1], '.', label=r"$p$ (measured)")
 plt.plot(ts, true_traj[:, 0], label=r"$q$")
 plt.plot(ts, true_traj[:, 1], label=r"$p$")
 plt.title("Trajectory")
 plt.xlabel("Time")
 plt.legend()
 plt.show()
+
+
+def rmse(x, y):
+    """
+    Returns root mean square error between two vectors x and y.
+    """
+    return jnp.sqrt(jnp.mean(jnp.square(x - y),  axis=0))
+
+
+print(filt_states.mean[:10, 0])
+print(true_traj[:20, 0])
