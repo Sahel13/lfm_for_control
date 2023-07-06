@@ -13,6 +13,7 @@ def hamiltonian(x, params):
     :return: The Hamiltonian.
     """
     q, p = x
+    g = 9.81
     m, l = params['mass'], params['length']
     return p ** 2 / (2 * m * l ** 2) + m * 9.81 * l * (1 - jnp.cos(q))
 
@@ -49,7 +50,7 @@ def generate_measurements(key, true_traj, meas_error, sampling_rate, dt):
     :param meas_error: Standard deviations of measurement noise for each coordinate.
     :param sampling_rate: Number of measurements per second.
     :param dt: Time step of the SDE solver.
-    :return:
+    :return: The true trajectory and the noisy measurements at `sampling_rate` frequency.
     """
     # Get trajectory values according to the sampling rate.
     step = int(1 / (sampling_rate * dt))
@@ -66,6 +67,7 @@ def get_dataset(
         params,
         x0,
         t_span,
+        meas_error,
         dt: float = 0.001,
         sampling_rate: int = 100):
     """
@@ -78,7 +80,7 @@ def get_dataset(
         soln = euler_maruyama(subkey, drift_fn, diffusion_fn, params, x0, t_span, dt)
 
         key, subkey = random.split(key)
-        true, meas = generate_measurements(subkey, soln, params['meas_error'], sampling_rate, dt)
+        true, meas = generate_measurements(subkey, soln, meas_error, sampling_rate, dt)
 
         dataset.append((true, meas))
     return dataset
