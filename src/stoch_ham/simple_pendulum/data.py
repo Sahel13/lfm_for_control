@@ -1,7 +1,5 @@
-import jax
 import jax.random as random
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
 from stoch_ham.sde import euler_maruyama
 
 
@@ -84,49 +82,3 @@ def get_dataset(
 
         dataset.append((true, meas))
     return dataset
-
-
-# Example usage and visualization.
-if __name__ == "__main__":
-    seed = 12
-    key = random.PRNGKey(seed)
-
-    params = {
-        'mass': 1.,
-        'length': 2.,
-        'lambda': 5.,
-        'q': 0.05,
-        'meas_error': jnp.array([0.1, .5])
-    }
-
-    x0 = jnp.array([jnp.pi / 2, 0.])
-    t_span = (0., 10.)
-
-    trajs = get_dataset(key, 5, params, x0, t_span)
-
-    ts = jnp.linspace(*t_span, len(trajs[0]))
-
-    plt.figure()
-    for traj in trajs:
-        plt.plot(traj[:, 0], traj[:, 1])
-    plt.xlabel(r"$q$")
-    plt.ylabel(r"$p$")
-    plt.title("Phase space trajectory")
-    plt.show()
-
-    plt.figure()
-    for traj in trajs:
-        plt.plot(ts, traj[:, 0], label=r"$q$")
-        plt.plot(ts, traj[:, 1], label=r"$p$")
-    plt.title("Trajectory")
-    plt.xlabel("Time")
-    plt.legend()
-    plt.show()
-
-    energies = jax.vmap(hamiltonian, in_axes=(0, None))(trajs[0], params)
-    plt.figure()
-    plt.plot(ts, energies)
-    plt.title("Energy vs time")
-    plt.xlabel("Time")
-    plt.ylabel("Energy")
-    plt.show()

@@ -16,7 +16,7 @@ def filtering(observations: ArrayLike,
               linearization_method: Callable
               ):
     def body(carry, y):
-        x, ell = carry
+        x, log_lik = carry
 
         # Predict
         F_x, cov_Q, b = linearization_method(transition_model, x)
@@ -24,13 +24,13 @@ def filtering(observations: ArrayLike,
 
         # Update (Linear observation model assumed)
         H_x, cov_R, c = linearization_method(observation_model, x)
-        x, ell_inc = update(H_x, cov_R, c, x, y)
-        return (x, ell + ell_inc), x
+        x, log_lik_inc = update(H_x, cov_R, c, x, y)
+        return (x, log_lik + log_lik_inc), x
 
-    (_, ell), xs = jax.lax.scan(body, (x0, 0.), observations)
+    (_, log_lik), xs = jax.lax.scan(body, (x0, 0.), observations)
     xs = none_or_concat(xs, x0, 1)
 
-    return xs, ell
+    return xs, log_lik
 
 
 def predict(F, Q, b, x: MVNStandard):
@@ -55,5 +55,5 @@ def update(H, R, c, x: MVNStandard, y: ArrayLike):
     P = P - G @ S @ G.T
 
     # Get the marginal data log-likelihood.
-    ell = mvn_loglikelihood(y, y_hat, chol_S)
-    return MVNStandard(m, P), ell
+    log_lik = mvn_loglikelihood(y, y_hat, chol_S)
+    return MVNStandard(m, P), log_lik
