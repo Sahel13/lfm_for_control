@@ -31,6 +31,15 @@ def none_or_concat(x, y, position=1):
         return jax.tree_map(lambda a, b: jnp.concatenate([b, a[None, ...]]), y, x)
 
 
+def none_or_shift(x, shift: int):
+    """Method to shift pytree nodes (assumed to be arrays) along the first axis."""
+    if x is None:
+        return None
+    if shift > 0:
+        return jax.tree_map(lambda z: z[shift:], x)
+    return jax.tree_map(lambda z: z[:shift], x)
+
+
 def l2_loss_single(prediction, target):
     """
     L2 loss between two 1-D arrays corresponding to a single data point.
