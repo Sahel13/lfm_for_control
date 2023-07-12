@@ -16,9 +16,9 @@ def hamiltonian(x, params):
     return p ** 2 / (2 * m * l ** 2) + m * 9.81 * l * (1 - jnp.cos(q))
 
 
-def drift_fn(x, params):
+def _default_drift_fn(x, params):
     """
-    The drift function of the stochastic Hamiltonian system.
+    The dynamics of the simple pendulum.
     :param x: The state.
     :param params: The parameters of the system.
     :return: The drift vector field.
@@ -29,7 +29,7 @@ def drift_fn(x, params):
     return jnp.array([p / (m * l ** 2), -m * g * l * jnp.sin(q)])
 
 
-def diffusion_fn(x, params):
+def _default_diffusion_fn(x, params):
     """
     The diffusion function of the stochastic Hamiltonian system.
     :param x: The state.
@@ -54,31 +54,30 @@ def generate_measurements(key, true_traj, meas_error, sampling_rate, dt):
     step = int(1 / (sampling_rate * dt))
     sub_traj = true_traj[::step]
     # Add noise
-    meas_noise = random.normal(key, shape=sub_traj.shape) * meas_error
-    meas_sub_traj = sub_traj + meas_noise
+    meas_noise = random.normal(key, shape=sub_traj[1:].shape) * meas_error
+    meas_sub_traj = sub_traj[1:] + meas_noise
     return sub_traj, meas_sub_traj
 
 
 def get_dataset(
         key,
-        num_trajectories,
         params,
         x0,
         t_span,
         meas_error,
+        drift_fn=_default_drift_fn,
+        diffusion_fn=_default_diffusion_fn,
         dt: float = 0.001,
-        sampling_rate: int = 100):
+        sampling_rate: int = 10):
     """
-    Function to generate a dataset of trajectories of the simple pendulum.
-    :return: A list of trajectories.
+    Generate a trajectory of the simple pendulum.
     """
-    dataset = []
-    for i in range(num_trajectories):
-        key, subkey = random.split(key)
-        soln = euler_maruyama(subkey, drift_fn, diffusion_fn, params, x0, t_span, dt)
+    # Simulate the system.
+    key, subkey = random.split(key)
+    soln = euler_maruyama(subkey, drift_fn, diffusion_fn, params, x0, t_span, dt)
 
-        key, subkey = random.split(key)
-        true, meas = generate_measurements(subkey, soln, meas_error, sampling_rate, dt)
+    # Sample the trajectory and generate measurements.
+    key, subkey = random.split(key)
+    true, meas = generate_measurements(subkey, soln, meas_error, sampling_rate, dt)
 
-        dataset.append((true, meas))
-    return dataset
+    return true, meas
