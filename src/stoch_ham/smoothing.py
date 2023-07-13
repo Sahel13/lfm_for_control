@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Optional
 
 import jax
 import jax.scipy.linalg as jlag
@@ -9,18 +9,22 @@ from stoch_ham.utils import none_or_shift, none_or_concat
 
 def smoothing(transition_model: FunctionalModel,
               filter_trajectory: MVNStandard,
-              linearization_method: Callable):
+              linearization_method: Callable,
+              nominal_trajectory: Optional[MVNStandard] = None):
     last_state = jax.tree_map(lambda z: z[-1], filter_trajectory)
 
-    def body(smoothed, filtered):
-        F_x, cov_or_chol, b = linearization_method(transition_model, smoothed)
-        smoothed_state = _standard_smooth(F_x, cov_or_chol, b, filtered, smoothed)
+    def body(smoothed, inputs):
+        filtered, ref = inputs
+        if ref is None:
+            ref = smoothed
+        F_x, cov, b = linearization_method(transition_model, ref)
+        smoothed_state = _standard_smooth(F_x, cov, b, filtered, smoothed)
 
         return smoothed_state, smoothed_state
 
     _, smoothed_states = jax.lax.scan(body,
                                       last_state,
-                                      none_or_shift(filter_trajectory, -1),
+                                      [none_or_shift(filter_trajectory, -1), none_or_shift(nominal_trajectory, -1)],
                                       reverse=True)
 
     smoothed_states = none_or_concat(smoothed_states, last_state, -1)

@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -6,28 +6,37 @@ from jax.scipy.linalg import cho_solve
 from jax.typing import ArrayLike
 
 from stoch_ham.base import MVNStandard, FunctionalModel
-from stoch_ham.utils import mvn_loglikelihood, none_or_concat
+from stoch_ham.utils import mvn_loglikelihood, none_or_concat, none_or_shift
 
 
 def filtering(observations: ArrayLike,
               x0: MVNStandard,
               transition_model: FunctionalModel,
               observation_model: FunctionalModel,
-              linearization_method: Callable
+              linearization_method: Callable,
+              nominal_trajectory: Optional[MVNStandard] = None
               ):
-    def body(carry, y):
+    def body(carry, inp):
         x, log_lik = carry
+        y, predict_ref, update_ref = inp
 
         # Predict
-        F_x, cov_Q, b = linearization_method(transition_model, x)
+        if predict_ref is None:
+            predict_ref = x
+        F_x, cov_Q, b = linearization_method(transition_model, predict_ref)
         x = predict(F_x, cov_Q, b, x)
 
-        # Update (Linear observation model assumed)
-        H_x, cov_R, c = linearization_method(observation_model, x)
+        # Update
+        if update_ref is None:
+            update_ref = x
+        H_x, cov_R, c = linearization_method(observation_model, update_ref)
         x, log_lik_inc = update(H_x, cov_R, c, x, y)
         return (x, log_lik + log_lik_inc), x
 
-    (_, log_lik), xs = jax.lax.scan(body, (x0, 0.), observations)
+    predict_traj = none_or_shift(nominal_trajectory, -1)
+    update_traj = none_or_shift(nominal_trajectory, 1)
+
+    (_, log_lik), xs = jax.lax.scan(body, (x0, 0.), (observations, predict_traj, update_traj))
     xs = none_or_concat(xs, x0, 1)
 
     return xs, log_lik
