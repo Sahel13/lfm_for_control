@@ -1,16 +1,14 @@
 import jax
 import jax.numpy as jnp
 import jax.random as random
-import matplotlib.pyplot as plt
 
-from stoch_ham.base import MVNStandard, FunctionalModel
-from stoch_ham.filtering import filtering
-from stoch_ham.smoothing import smoothing
-from stoch_ham.linearization import extended
+from parsmooth._base import MVNStandard, FunctionalModel
+from parsmooth.linearization import unscented
+from parsmooth.methods import iterated_smoothing
 from stoch_ham.simple_pendulum.data import get_dataset, hamiltonian
 
+import matplotlib.pyplot as plt
 import numpy as np
-import optax
 from scipy.optimize import minimize, Bounds
 
 ####################
@@ -116,7 +114,7 @@ def get_x0(params):
     return x0
 
 
-def get_ell_and_filter(params, observations, dt, meas_error, smooth=False):
+def get_ell_and_filter(params, observations, dt, meas_error):
     """
     Wrapper function to get the marginal data log-likelihood
     and the filtered states.
@@ -138,13 +136,12 @@ def get_ell_and_filter(params, observations, dt, meas_error, smooth=False):
 
     # Get the initial state distribution and run the filter.
     x0 = get_x0(params)
-    filt_states, ell = filtering(observations, x0, transition_model, observation_model, extended)
+    smoothed_states, ell = iterated_smoothing(
+        observations, x0, transition_model, observation_model, unscented,
+        return_loglikelihood=True
+    )
 
-    if smooth:
-        smoothed_states = smoothing(transition_model, filt_states, extended)
-        return ell, filt_states, smoothed_states
-
-    return ell, filt_states
+    return ell, smoothed_states
 
 
 ####################
@@ -165,7 +162,7 @@ bounds = Bounds([0.5, 0.5, 1e-2, -np.inf], [10., 10., np.inf, np.inf])
 opt_result = minimize(wrapper_func, guess_params, method='L-BFGS-B', jac=True, bounds=bounds)
 best_params = opt_result.x
 
-log_lik, filt_states, smoothed_states = get_ell_and_filter(best_params, observations, dt, meas_error, True)
+log_lik, smoothed_states = get_ell_and_filter(best_params, observations, dt, meas_error)
 print(f"The best parameters are: {best_params} with log-likelihood {log_lik:.4f}.")
 
 fig, axs = plt.subplots(3, 1, sharex=True, layout="tight")
@@ -182,7 +179,6 @@ axs[1].set_ylabel(r"$p$")
 axs[1].legend()
 
 axs[2].plot(ts, true_traj[:, 2], label="True")
-axs[2].plot(ts, filt_states.mean[:, 2], label="Filtered")
 axs[2].plot(ts, smoothed_states.mean[:, 2], label="Smoothed")
 axs[2].set_ylabel(r"$u$")
 axs[2].set_xlabel("Time t")

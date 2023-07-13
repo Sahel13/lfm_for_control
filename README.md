@@ -2,4 +2,10 @@
 
 Companion Tex file - [Overleaf](https://www.overleaf.com/4649448398bqmwstgrxfjy)
 
-Filtering and smoothing code is mostly [Adrien's](https://github.com/AdrienCorenflos) and [Fatemeh's](https://github.com/Fatemeh-Yaghoobi) from [sqrt-parallel-smoothers](https://github.com/EEA-sensors/sqrt-parallel-smoothers).
+## Installation
+- Create a python virtual environment.
+- Clone and install [sqrt-parallel-smoothers](https://github.com/EEA-sensors/sqrt-parallel-smoothers).
+- Clone this repository and run
+```bash
+pip install -e .
+```

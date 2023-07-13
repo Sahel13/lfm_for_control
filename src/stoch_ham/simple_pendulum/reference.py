@@ -3,10 +3,9 @@ import jax.numpy as jnp
 import jax.random as random
 import matplotlib.pyplot as plt
 
-from stoch_ham.base import MVNStandard, FunctionalModel
-from stoch_ham.filtering import filtering
-from stoch_ham.smoothing import smoothing
-from stoch_ham.linearization import extended
+from parsmooth._base import MVNStandard, FunctionalModel
+from parsmooth.linearization import extended
+from parsmooth.methods import filtering, smoothing
 from stoch_ham.simple_pendulum.data import get_dataset, hamiltonian
 
 import numpy as np
@@ -118,7 +117,8 @@ def get_ell_and_filter(params, observations, dt, meas_error, smooth=False):
 
     # Get the initial state distribution and run the filter.
     x0 = get_x0(params)
-    filt_states, ell = filtering(observations, x0, transition_model, observation_model, extended)
+    filt_states, ell = filtering(observations, x0, transition_model, observation_model, extended,
+                                 return_loglikelihood=True)
 
     if smooth:
         smoothed_states = smoothing(transition_model, filt_states, extended)
