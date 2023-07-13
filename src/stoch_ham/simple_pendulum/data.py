@@ -16,7 +16,7 @@ def hamiltonian(x, params):
     return p ** 2 / (2 * m * l ** 2) + m * 9.81 * l * (1 - jnp.cos(q))
 
 
-def _default_drift_fn(x, params):
+def _default_drift_fn(x, t, params):
     """
     The dynamics of the simple pendulum.
     :param x: The state.
@@ -29,7 +29,7 @@ def _default_drift_fn(x, params):
     return jnp.array([p / (m * l ** 2), -m * g * l * jnp.sin(q)])
 
 
-def _default_diffusion_fn(x, params):
+def _default_diffusion_fn(x, t, params):
     """
     The diffusion function of the stochastic Hamiltonian system.
     :param x: The state.
