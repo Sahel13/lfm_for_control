@@ -3,17 +3,18 @@ import jax.numpy as jnp
 import jax.random as random
 
 from parsmooth._base import MVNStandard, FunctionalModel
-from parsmooth.linearization import unscented
+from parsmooth.linearization import extended
 from parsmooth.methods import iterated_smoothing
-from stoch_ham.simple_pendulum.data import get_dataset, hamiltonian
+from data import add_meas_noise
 
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.integrate import solve_ivp
 from scipy.optimize import minimize, Bounds
 
-####################
+########################################
 # Get the data
-####################
+########################################
 seed = 2
 key = random.PRNGKey(seed)
 
@@ -32,9 +33,10 @@ dt = 1./sampling_rate
 
 x0_mean = jnp.array([1.5, 0., 0.])
 t_span = (0., 10.)
+ts = jnp.linspace(*t_span, int((t_span[1] - t_span[0])) * sampling_rate + 1)
 
 
-def data_drift_fn(x, t, params):
+def data_drift_fn(t, x, params):
     q, p, u = x
     g = 9.81
     m, l = params['mass'], params['length']
@@ -42,24 +44,11 @@ def data_drift_fn(x, t, params):
     return jnp.array([p / (m * l ** 2), -m * g * l * jnp.sin(q) + u, du])
 
 
-def data_diffusion_fn(x, t, params):
-    return jnp.array([0., 0., 1.])
-
-
-true_traj, observations = get_dataset(
-    key, true_params, x0_mean, t_span, meas_error,
-    drift_fn=data_drift_fn, diffusion_fn=data_diffusion_fn, sampling_rate=sampling_rate)
-
+sol = solve_ivp(data_drift_fn, t_span, x0_mean, t_eval=ts, args=(true_params,))
+true_traj = sol.y.T
+key, subkey = random.split(key)
+observations = add_meas_noise(subkey, true_traj, meas_error)
 observations = observations[:, :2]
-
-ts = jnp.linspace(*t_span, len(true_traj))
-
-plt.figure()
-plt.plot(observations[:, 0], observations[:, 1])
-plt.xlabel(r"$q$")
-plt.ylabel(r"$p$")
-plt.title("Phase space trajectory")
-plt.show()
 
 plt.figure()
 plt.plot(ts[1:], observations[:, 0], '.', label=r"$q$ (measured)")
@@ -67,23 +56,14 @@ plt.plot(ts[1:], observations[:, 1], '.', label=r"$p$ (measured)")
 plt.plot(ts, true_traj[:, 0], label=r"$q$")
 plt.plot(ts, true_traj[:, 1], label=r"$p$")
 plt.plot(ts, true_traj[:, 2], label=r"$u$")
-plt.title("Trajectory")
+plt.title("Data")
 plt.xlabel("Time")
 plt.legend()
 plt.show()
 
-energies = jax.vmap(hamiltonian, in_axes=(0, None))(observations, true_params)
-plt.figure()
-plt.plot(ts[1:], energies)
-plt.title("Energy vs time")
-plt.xlabel("Time")
-plt.ylabel("Energy")
-plt.show()
-
-
-####################
-# Filtering
-####################
+########################################
+# Smoothing
+########################################
 def drift_fun(x, params):
     """
     The drift function of the augmented state.
@@ -99,7 +79,8 @@ def get_Q(params, dt):
     Get the process noise covariance matrix `Q`
     by first defining the diffusion vector `L`.
     """
-    Q = jnp.diag(jnp.array([1e-3, 1e-3, jnp.exp(params[-1])]))
+    res = 1e-6  # To prevent noise covariance from becoming singular.
+    Q = jnp.diag(jnp.array([res, res, jnp.exp(params[-1])]))
     return Q * dt
 
 
@@ -117,7 +98,7 @@ def get_x0(params):
 def get_ell_and_filter(params, observations, dt, meas_error):
     """
     Wrapper function to get the marginal data log-likelihood
-    and the filtered states.
+    and the smoothed states.
     """
     # Define the transition model.
     Q = get_Q(params, dt)
@@ -137,16 +118,17 @@ def get_ell_and_filter(params, observations, dt, meas_error):
     # Get the initial state distribution and run the filter.
     x0 = get_x0(params)
     smoothed_states, ell = iterated_smoothing(
-        observations, x0, transition_model, observation_model, unscented,
+        observations, x0, transition_model, observation_model, extended,
         return_loglikelihood=True
     )
 
     return ell, smoothed_states
 
 
-####################
+########################################
 # Parameter estimation
-####################
+########################################
+# Define helper methods for optimization.
 get_neg_log_lik = lambda params: -get_ell_and_filter(params, observations, dt, meas_error)[0]
 grad_log_lik = jax.jit(jax.value_and_grad(get_neg_log_lik))
 
@@ -157,11 +139,13 @@ def wrapper_func(params):
     return np.array(loss, dtype=np.float64), np.array(grad_val, dtype=np.float64)
 
 
+# Set up and run L-BFGS-B.
 guess_params = np.array([1.5, 1., 1., 0.1])
-bounds = Bounds([0.5, 0.5, 1e-2, -np.inf], [10., 10., np.inf, np.inf])
+bounds = Bounds([0.5, 0.5, 1e-2, -np.inf], [np.inf, np.inf, np.inf, np.inf])
 opt_result = minimize(wrapper_func, guess_params, method='L-BFGS-B', jac=True, bounds=bounds)
-best_params = opt_result.x
 
+# Visualize results.
+best_params = opt_result.x
 log_lik, smoothed_states = get_ell_and_filter(best_params, observations, dt, meas_error)
 print(f"The best parameters are: {best_params} with log-likelihood {log_lik:.4f}.")
 

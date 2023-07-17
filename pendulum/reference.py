@@ -5,11 +5,10 @@ import matplotlib.pyplot as plt
 
 from parsmooth._base import MVNStandard, FunctionalModel
 from parsmooth.linearization import extended
-from parsmooth.methods import filtering, smoothing
-from stoch_ham.simple_pendulum.data import get_dataset, hamiltonian
+from parsmooth.methods import iterated_smoothing
+from data import get_dataset, hamiltonian
 
 import numpy as np
-import optax
 from scipy.optimize import minimize
 
 ####################
@@ -95,7 +94,7 @@ def get_x0(params):
     return x0
 
 
-def get_ell_and_filter(params, observations, dt, meas_error, smooth=False):
+def get_ell_and_filter(params, observations, dt, meas_error):
     """
     Wrapper function to get the marginal data log-likelihood
     and the filtered states.
@@ -117,14 +116,12 @@ def get_ell_and_filter(params, observations, dt, meas_error, smooth=False):
 
     # Get the initial state distribution and run the filter.
     x0 = get_x0(params)
-    filt_states, ell = filtering(observations, x0, transition_model, observation_model, extended,
-                                 return_loglikelihood=True)
+    smoothed_trajectory, log_lik = iterated_smoothing(
+        observations, x0, transition_model, observation_model, extended,
+        criterion=lambda i, *_: i < 50,
+        parallel=True, return_loglikelihood=True)
 
-    if smooth:
-        smoothed_states = smoothing(transition_model, filt_states, extended)
-        return ell, filt_states, smoothed_states
-
-    return ell, filt_states
+    return log_lik, smoothed_trajectory
 
 
 ####################
@@ -144,7 +141,7 @@ guess_params = np.array([1.5, 1., 0.01, 0.1])
 opt_result = minimize(wrapper_func, guess_params, method='L-BFGS-B', jac=True, bounds=[(1e-3, None), (1e-3, None), (1e-3, None), (1e-3, None)])
 best_params = opt_result.x
 
-log_lik, filt_states, smoothed_states = get_ell_and_filter(best_params, observations, dt, meas_error, True)
+log_lik, smoothed_states = get_ell_and_filter(best_params, observations, dt, meas_error)
 print(f"The best parameters are: {best_params} with log-likelihood {log_lik:.4f}.")
 
 plt.figure()
