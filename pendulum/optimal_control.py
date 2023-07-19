@@ -1,64 +1,46 @@
 import jax
+from jax import random
 import jax.numpy as jnp
-import jax.random as random
-import optax
 import numpy as np
+import matplotlib.pyplot as plt
+import optax
 
 from data import add_meas_noise
-from scipy.integrate import solve_ivp
-import matplotlib.pyplot as plt
-
 from parsmooth._base import MVNStandard, FunctionalModel
 from stoch_ham.continuous_discrete_filtering import filtering
 from stoch_ham.continuous_discrete_smoothing import smoothing
 
+seed = 2
+key = random.PRNGKey(seed)
+
 ########################################
 # Get the data
 ########################################
-seed = 0
-key = random.PRNGKey(seed)
+data = jnp.array(np.loadtxt("trajectory_data.csv", dtype="float64", delimiter=","))
+init_state = jnp.array([1., -0.01, 0.])
+true_traj = jnp.vstack([init_state[None, :], data])
 
-meas_error = jnp.array([.5, 2.5, 0.])
-
-true_params = {
-    'mass': 1.,
-    'length': 2.,
-    'a': 3.,
-    'omega': jnp.pi / 2
-}
-
-sampling_rate = 20
-dt = 1./sampling_rate
-
-x0_mean = jnp.array([1.5, 0., 0.])
-t_span = (0., 10.)
-ts = jnp.linspace(*t_span, int((t_span[1] - t_span[0])) * sampling_rate + 1)
-
-
-def data_drift_fn(t, x, params):
-    q, p, u = x
-    g = 9.81
-    m, l = params['mass'], params['length']
-    du = params['a'] * params['omega'] * jnp.cos(params['omega'] * t)
-    return jnp.array([p / (m * l ** 2), -m * g * l * jnp.sin(q) + u, du])
-
-
-sol = solve_ivp(data_drift_fn, t_span, x0_mean, t_eval=ts, args=(true_params,))
-true_traj = sol.y.T
+meas_error = jnp.array([.2, .4])
 key, subkey = random.split(key)
-observations = add_meas_noise(subkey, true_traj, meas_error)
-observations = observations[:, :2]
+observations = add_meas_noise(subkey, true_traj[:, :2], meas_error)
 
-plt.figure()
-plt.plot(ts[1:], observations[:, 0], '.', label=r"$q$ (measured)")
-plt.plot(ts[1:], observations[:, 1], '.', label=r"$p$ (measured)")
-plt.plot(ts, true_traj[:, 0], label=r"$q$")
-plt.plot(ts, true_traj[:, 1], label=r"$p$")
-plt.plot(ts, true_traj[:, 2], label=r"$u$")
-plt.title("Data")
-plt.xlabel("Time")
-plt.legend()
+t_span = (0., 5.)
+dt = 0.05
+t_eval = jnp.arange(t_span[0], t_span[1] + dt, dt)
+
+fig, axs = plt.subplots(3, 1, sharex=True, layout="tight")
+axs[0].plot(t_eval[1:], observations[:, 0], '.', label="Measured")
+axs[0].plot(t_eval, true_traj[:, 0], label="True")
+axs[0].set_ylabel("Position")
+axs[1].plot(t_eval[1:], observations[:, 1], '.', label="Measured")
+axs[1].plot(t_eval, true_traj[:, 1], label="True")
+axs[1].set_ylabel("Velocity")
+axs[2].plot(t_eval, true_traj[:, 2], label="True")
+axs[2].set_xlabel("Time")
+axs[2].set_ylabel("Control input")
+axs[2].legend()
 plt.show()
+
 
 ########################################
 # Filtering and smoothing
@@ -67,17 +49,19 @@ def drift_fun(x, params):
     """
     The drift function of the augmented state.
     """
+    # p is the angular velocity.
     q, p, u = x
-    g = 9.81
     m, l, lamba = params[:3]
-    return jnp.array([p / (m * l ** 2), -m * g * l * jnp.sin(q) + u, -lamba * u])
+    g = 9.81
+    damping = 1e-3
+    return jnp.array([p, -g / l * jnp.sin(q) + (u - damping * p) / (m * l**2), -lamba * u])
 
 
 def get_LQL(params):
     """
     LQL term of the covariance.
     """
-    eps = 0.  # To prevent noise covariance from becoming singular.
+    eps = 1e-4  # If needed to prevent noise covariance from becoming singular.
     LQL = jnp.diag(jnp.array([eps, eps, params[-1]]))
     return LQL
 
@@ -86,7 +70,7 @@ def get_x0(params):
     """
     Define the distribution of the initial state.
     """
-    x0mean = jnp.array([1.5, 0., 0.])
+    x0mean = jnp.array([1., -0.01, 0.])
     u0_cov = params[-1] / (2 * params[2])
     x0cov = jnp.diag(jnp.array([1., 1., u0_cov]))
     x0 = MVNStandard(x0mean, x0cov)
@@ -137,10 +121,9 @@ grad_log_lik = jax.value_and_grad(get_neg_log_lik)
 
 # Using Adam
 def estimate_params(params, display=False):
-    num_epochs = 200
-    learning_rate = 0.01
-    schedule = optax.piecewise_constant_schedule(learning_rate, {100: 0.5, 150: 0.1})
-    optimizer = optax.adam(learning_rate=schedule)
+    num_epochs = 100
+    learning_rate = .1
+    optimizer = optax.adam(learning_rate)
     opt_state = optimizer.init(params)
 
     @jax.jit
@@ -161,13 +144,13 @@ def estimate_params(params, display=False):
     return params, nll
 
 
-# num_trials = 3
-# key, subkey = random.split(key)
-# init_values = random.uniform(subkey, (num_trials, 4), minval=0., maxval=2.)
+num_trials = 3
+key, subkey = random.split(key)
+init_values = random.uniform(subkey, (num_trials, 4), minval=0., maxval=3.)
 
 # For testing
-num_trials = 1
-init_values = jnp.array([1., 2., 1., 1.])[None, :]
+# num_trials = 1
+# init_values = jnp.array([1., 2., 1., 1.])[None, :]
 
 param_list, nll_list = [], []
 for i in range(num_trials):
@@ -200,23 +183,23 @@ def get_std(x: MVNStandard):
 smoothed_covs = get_std(smoothed_traj)
 
 fig, axs = plt.subplots(3, 1, sharex=True, layout="tight")
-axs[0].plot(ts, true_traj[:, 0], label="True")
-axs[0].scatter(ts[1:], observations[:, 0], label="Measured")
-axs[0].plot(ts, smoothed_traj.mean[:, 0], label="Smoothed")
-axs[0].fill_between(ts, *smoothed_covs[0], alpha=0.2, label="2 std")
+axs[0].plot(t_eval, true_traj[:, 0], label="True")
+axs[0].scatter(t_eval[1:], observations[:, 0], label="Measured")
+axs[0].plot(t_eval, smoothed_traj.mean[:, 0], label="Smoothed")
+axs[0].fill_between(t_eval, *smoothed_covs[0], alpha=0.2, label="2 std")
 axs[0].set_ylabel(r"$q$")
 axs[0].legend()
 
-axs[1].plot(ts, true_traj[:, 1], label="True")
-axs[1].scatter(ts[1:], observations[:, 1], label="Measured")
-axs[1].plot(ts, smoothed_traj.mean[:, 1], label="Smoothed")
-axs[1].fill_between(ts, *smoothed_covs[1], alpha=0.2, label="2 std")
+axs[1].plot(t_eval, true_traj[:, 1], label="True")
+axs[1].scatter(t_eval[1:], observations[:, 1], label="Measured")
+axs[1].plot(t_eval, smoothed_traj.mean[:, 1], label="Smoothed")
+axs[1].fill_between(t_eval, *smoothed_covs[1], alpha=0.2, label="2 std")
 axs[1].set_ylabel(r"$p$")
 axs[1].legend()
 
-axs[2].plot(ts, true_traj[:, 2], label="True")
-axs[2].plot(ts, smoothed_traj.mean[:, 2], label="Smoothed", color="orange")
-axs[2].fill_between(ts, *smoothed_covs[2], alpha=0.2, label="2 std", color="orange")
+axs[2].plot(t_eval, true_traj[:, 2], label="True")
+axs[2].plot(t_eval, smoothed_traj.mean[:, 2], label="Smoothed", color="orange")
+axs[2].fill_between(t_eval, *smoothed_covs[2], alpha=0.2, label="2 std", color="orange")
 axs[2].set_ylabel(r"$u$")
 axs[2].set_xlabel("Time t")
 axs[2].legend()
