@@ -1,5 +1,4 @@
-# stochastic_hamiltonian
-
+# Latent Force Models for Control
 Companion Tex file - [Overleaf](https://www.overleaf.com/4649448398bqmwstgrxfjy)
 
 ## Installation
